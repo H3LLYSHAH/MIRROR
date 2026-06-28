@@ -196,8 +196,7 @@ function eraseAt(rawX, rawY) {
   maskCtx.save();
   maskCtx.globalCompositeOperation = 'destination-out';
   maskCtx.strokeStyle = 'rgba(0,0,0,1)';
-  // FIX: smaller lineWidth = finer finger-drawing stroke, not a fat eraser
-  maskCtx.lineWidth = 18;
+  maskCtx.lineWidth = 22;
   maskCtx.lineCap = 'round';
   maskCtx.lineJoin = 'round';
   maskCtx.beginPath();
@@ -233,32 +232,53 @@ function undo() {
   maskCtx.putImageData(undoStack.pop(), 0, 0);
 }
 
-// ── Pinch hysteresis ──────────────────────────────────────────────────
-// PINCH_ON  < PINCH_OFF  creates a "dead band" so jitter can't flip state
-// FRAMES_ON / FRAMES_OFF require consecutive frames before changing state
-const PINCH_ON   = 0.060;  // must be THIS close to enter pinch
-const PINCH_OFF  = 0.085;  // must be THIS far apart to exit pinch
-const FRAMES_ON  = 3;      // need 3 consecutive close frames to start
-const FRAMES_OFF = 6;      // need 6 consecutive open frames to stop
+// ── Pinch detection using NORMALISED 3-D distance ─────────────────────
+// KEY FIX: We measure pinch in NORMALISED landmark space (0-1), not pixels.
+// This means the pinch threshold is hand-size-independent and depth-independent.
+// Whether your hand is close to camera or far, the normalised tip-to-tip
+// distance stays consistent when you actually pinch vs. open.
+//
+// We also use a WRIST-SCALED distance: divide tip distance by the
+// palm size (wrist→middle-mcp) so pinch ratio is always relative to
+// YOUR hand, not to how far you hold it from the camera.
+
+const PINCH_ON_RATIO  = 0.28; // tip dist / palm size → pinching
+const PINCH_OFF_RATIO = 0.40; // tip dist / palm size → open
+const FRAMES_ON  = 2;
+const FRAMES_OFF = 6;
 
 let pinchState    = false;
 let pinchOnCount  = 0;
 let pinchOffCount = 0;
 
-function updatePinch(pixelDist) {
-  const norm = pixelDist / W;
+function palmSize(lm) {
+  // Distance from wrist (0) to middle-finger MCP (9) in normalised space
+  const dx = lm[9].x - lm[0].x;
+  const dy = lm[9].y - lm[0].y;
+  const dz = (lm[9].z || 0) - (lm[0].z || 0);
+  return Math.sqrt(dx*dx + dy*dy + dz*dz) || 0.001;
+}
+
+function pinchDist(lm) {
+  // Index fingertip (8) to thumb tip (4) in 3-D normalised space
+  const dx = lm[8].x - lm[4].x;
+  const dy = lm[8].y - lm[4].y;
+  const dz = (lm[8].z || 0) - (lm[4].z || 0);
+  return Math.sqrt(dx*dx + dy*dy + dz*dz);
+}
+
+function updatePinch(lm) {
+  const ratio = pinchDist(lm) / palmSize(lm);
   if (!pinchState) {
-    if (norm < PINCH_ON) {
-      pinchOnCount++;
-      pinchOffCount = 0;
+    if (ratio < PINCH_ON_RATIO) {
+      pinchOnCount++; pinchOffCount = 0;
       if (pinchOnCount >= FRAMES_ON) { pinchState = true; pinchOnCount = 0; }
     } else {
       pinchOnCount = 0;
     }
   } else {
-    if (norm > PINCH_OFF) {
-      pinchOffCount++;
-      pinchOnCount = 0;
+    if (ratio > PINCH_OFF_RATIO) {
+      pinchOffCount++; pinchOnCount = 0;
       if (pinchOffCount >= FRAMES_OFF) { pinchState = false; pinchOffCount = 0; }
     } else {
       pinchOffCount = 0;
@@ -352,7 +372,12 @@ function doCapture() {
 
 // ── Hands ─────────────────────────────────────────────────────────────
 const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.7, minTrackingConfidence:0.6 });
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.6
+});
 
 hands.onResults(results => {
   const all = results.multiHandLandmarks || [];
@@ -360,11 +385,12 @@ hands.onResults(results => {
   // ── DRAW ──
   if (all.length >= 1 && !countingDown) {
     const lm = all[0];
+    // Fingertip position in screen coords (mirrored)
     const fx = (1 - lm[8].x) * W;
     const fy = lm[8].y * H;
-    const tx = (1 - lm[4].x) * W;
-    const ty = lm[4].y * H;
-    const pinching = updatePinch(Math.hypot(fx - tx, fy - ty));
+
+    // Use palm-normalised 3D pinch ratio — depth-independent
+    const pinching = updatePinch(lm);
 
     cursor.style.left = fx + 'px';
     cursor.style.top  = fy + 'px';
@@ -377,17 +403,15 @@ hands.onResults(results => {
       if (!isDrawingStroke) { saveSnapshot(); isDrawingStroke = true; }
       eraseAt(fx, fy);
       statusEl.textContent = 'drawing…';
-      return;  // skip capture logic while drawing
+      return;
     } else {
       cursor.classList.remove('drawing');
-      // Only truly reset when pinch state has fully released (after FRAMES_OFF)
       if (!pinchState) {
         if (isDrawingStroke) { isDrawingStroke = false; resetDraw(); }
       }
     }
   } else if (!countingDown) {
     cursor.style.opacity = '0';
-    // No hand visible — full reset
     pinchOnCount = 0; pinchOffCount = 0; pinchState = false;
     if (isDrawingStroke) { isDrawingStroke = false; resetDraw(); }
   }
