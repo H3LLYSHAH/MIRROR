@@ -226,6 +226,31 @@ function undo() {
   maskCtx.putImageData(undoStack.pop(), 0, 0);
 }
 
+// ── Pinch debounce ────────────────────────────────────────────────────
+// FIX: We don't stop drawing the instant pinch opens.
+// Only reset after PINCH_RELEASE_FRAMES consecutive non-pinch frames.
+const PINCH_RELEASE_FRAMES = 6;  // ~6 frames ≈ 100ms grace period
+let pinchReleaseCounter = 0;
+let isPinching = false;
+
+function updatePinchState(currentlyPinching) {
+  if (currentlyPinching) {
+    isPinching = true;
+    pinchReleaseCounter = 0;  // reset counter whenever pinch is active
+  } else {
+    if (isPinching) {
+      pinchReleaseCounter++;
+      if (pinchReleaseCounter >= PINCH_RELEASE_FRAMES) {
+        // Only truly release after enough consecutive non-pinch frames
+        isPinching = false;
+        pinchReleaseCounter = 0;
+      }
+      // While counting down, still treat as pinching (don't reset draw yet)
+    }
+  }
+  return isPinching;
+}
+
 // ── Capture ───────────────────────────────────────────────────────────
 const HOLD_MS = 1500;
 let holdStart = null, countingDown = false, countTimer = null;
@@ -321,8 +346,15 @@ hands.onResults(results => {
     const lm = all[0];
     const fx = (1-lm[8].x)*W, fy = lm[8].y*H;
     const tx = (1-lm[4].x)*W, ty = lm[4].y*H;
-    const pinching = Math.hypot(fx-tx, fy-ty) < W*0.055;
+    const dist = Math.hypot(fx-tx, fy-ty);
+
+    // FIX: Slightly larger threshold so pinch is easier to hold,
+    // and use debounced pinch state so brief separation doesn't break the stroke.
+    const rawPinching = dist < W * 0.07;
+    const pinching = updatePinchState(rawPinching);
+
     cursor.style.left = fx+'px'; cursor.style.top = fy+'px'; cursor.style.opacity = '1';
+
     if (pinching && fogReady) {
       holdStart = null; frameCtx.clearRect(0,0,W,H);
       cursor.classList.add('drawing');
@@ -330,13 +362,23 @@ hands.onResults(results => {
       eraseAt(fx, fy);
       statusEl.textContent = 'drawing…';
       return;
-    } else {
+    } else if (!isPinching) {
+      // Only truly reset when debounce confirms pinch is released
       cursor.classList.remove('drawing');
-      isDrawingStroke = false; resetDraw();
+      if (isDrawingStroke) {
+        isDrawingStroke = false;
+        resetDraw();
+      }
     }
   } else if (!countingDown) {
     cursor.style.opacity = '0';
-    isDrawingStroke = false; resetDraw();
+    if (isDrawingStroke) {
+      isDrawingStroke = false;
+      resetDraw();
+    }
+    // Reset pinch state when no hand detected
+    isPinching = false;
+    pinchReleaseCounter = 0;
   }
 
   // CAPTURE
@@ -402,6 +444,7 @@ document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('clearBtn').addEventListener('click', () => {
   maskCtx.clearRect(0,0,W,H);
   undoStack = []; fogReady = false; resetDraw();
+  isPinching = false; pinchReleaseCounter = 0;
   statusEl.textContent = 'blow on the screen';
 });
 
