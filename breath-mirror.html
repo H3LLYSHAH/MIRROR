@@ -14,7 +14,6 @@
   #maskCanvas   { z-index: 0; display: none; }
   #blurCanvas   { z-index: 2; }
   #frameCanvas  { z-index: 3; pointer-events: none; }
-
   #cursor {
     position: fixed; width: 20px; height: 20px; border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.7); background: rgba(255,255,255,0.08);
@@ -22,7 +21,6 @@
     opacity: 0; transition: opacity 0.15s;
   }
   #cursor.drawing { background: rgba(255,255,255,0.9); border-color: #fff; }
-
   #breathRing {
     position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
     width: 44px; height: 44px; border-radius: 50%;
@@ -30,14 +28,12 @@
     transition: border-color 0.1s, box-shadow 0.1s;
   }
   #breathRing.active { border-color: rgba(210,225,235,0.9); box-shadow: 0 0 20px rgba(210,225,235,0.35); }
-
   #status {
     position: fixed; bottom: 164px; left: 50%; transform: translateX(-50%);
     color: rgba(255,255,255,0.4); font-size: 11px; letter-spacing: 0.18em;
     text-transform: uppercase; font-family: Georgia, serif;
     pointer-events: none; white-space: nowrap; z-index: 50;
   }
-
   #countdown {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     font-size: 140px; font-family: Georgia, serif;
@@ -45,7 +41,6 @@
     pointer-events: none; z-index: 60; opacity: 0; transition: opacity 0.2s;
   }
   #countdown.show { opacity: 1; }
-
   #btnGroup { position: fixed; top: 20px; right: 20px; z-index: 50; display: flex; gap: 8px; }
   #btnGroup button {
     background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4);
@@ -56,7 +51,6 @@
   }
   #btnGroup button:hover { background: rgba(255,255,255,0.2); }
   #btnGroup button:active { transform: scale(0.96); }
-
   #photoStrip {
     position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
     display: flex; align-items: center; gap: 8px; padding: 8px 16px;
@@ -81,7 +75,6 @@
   }
   .photo-thumb:hover .save-btn { opacity: 1; }
   @keyframes thumbIn { from { opacity:0; transform:scale(0.8) translateY(10px); } to { opacity:1; transform:scale(1); } }
-
   #flash { position: fixed; inset: 0; z-index: 200; background: white; opacity: 0; pointer-events: none; }
 </style>
 </head>
@@ -103,7 +96,6 @@
 </div>
 <div id="photoStrip"></div>
 <div id="flash"></div>
-
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script>
@@ -122,12 +114,9 @@ const breathRing   = document.getElementById('breathRing');
 const flashEl      = document.getElementById('flash');
 const countdownEl  = document.getElementById('countdown');
 const photoStrip   = document.getElementById('photoStrip');
-
 const offscreen = document.createElement('canvas');
 const offCtx    = offscreen.getContext('2d');
-
 let W = 0, H = 0, fogReady = false;
-
 // ── Resize ────────────────────────────────────────────────────────────
 function resize() {
   W = window.innerWidth; H = window.innerHeight;
@@ -135,7 +124,6 @@ function resize() {
   offscreen.width = W; offscreen.height = H;
 }
 window.addEventListener('resize', resize);
-
 // ── Render ────────────────────────────────────────────────────────────
 function render() {
   requestAnimationFrame(render);
@@ -154,7 +142,6 @@ function render() {
   blurCtx.drawImage(maskCanvas, 0, 0);
   blurCtx.globalCompositeOperation = 'source-over';
 }
-
 // ── Fog ───────────────────────────────────────────────────────────────
 let breathCooldown = 0;
 function addFog(volume) {
@@ -178,43 +165,44 @@ function addFog(volume) {
   breathCooldown = 4;
   if (!countingDown) statusEl.textContent = 'pinch to draw';
 }
-
 // ── Draw ──────────────────────────────────────────────────────────────
 let smoothX = null, smoothY = null;
 const SMOOTH = 0.4;
-let trail = [], lastDrawX = null, lastDrawY = null;
-
+let lastDrawX = null, lastDrawY = null;
 function eraseAt(rawX, rawY) {
-  if (smoothX === null) { smoothX = rawX; smoothY = rawY; }
+  if (smoothX === null) {
+    smoothX = rawX;
+    smoothY = rawY;
+    return;
+  }
+  
+  const prevX = smoothX;
+  const prevY = smoothY;
+  
   smoothX += SMOOTH * (rawX - smoothX);
   smoothY += SMOOTH * (rawY - smoothY);
-  const x = smoothX, y = smoothY;
-  lastDrawX = x; lastDrawY = y;
-  trail.push({x, y}); if (trail.length > 6) trail.shift();
-  if (trail.length < 2) return;
+  
+  lastDrawX = smoothX; 
+  lastDrawY = smoothY;
+  
   maskCtx.save();
   maskCtx.globalCompositeOperation = 'destination-out';
   maskCtx.strokeStyle = 'rgba(0,0,0,1)';
-  maskCtx.lineWidth = 40; maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+  maskCtx.lineWidth = 40; 
+  maskCtx.lineCap = 'round'; 
+  maskCtx.lineJoin = 'round';
   maskCtx.beginPath();
-  if (trail.length === 2) {
-    maskCtx.moveTo(trail[0].x, trail[0].y);
-    maskCtx.lineTo(trail[1].x, trail[1].y);
-  } else {
-    maskCtx.moveTo((trail[0].x+trail[1].x)/2, (trail[0].y+trail[1].y)/2);
-    for (let i = 1; i < trail.length-1; i++) {
-      maskCtx.quadraticCurveTo(trail[i].x, trail[i].y,
-        (trail[i].x+trail[i+1].x)/2, (trail[i].y+trail[i+1].y)/2);
-    }
-  }
-  maskCtx.stroke(); maskCtx.restore();
+  maskCtx.moveTo(prevX, prevY);
+  maskCtx.lineTo(smoothX, smoothY);
+  maskCtx.stroke(); 
+  maskCtx.restore();
 }
-
 function resetDraw() {
-  smoothX = null; smoothY = null;
-  trail = []; lastDrawX = null; lastDrawY = null;
+  smoothX = null; 
+  smoothY = null;
+  lastDrawX = null; 
+  lastDrawY = null;
 }
-
 // ── Undo ──────────────────────────────────────────────────────────────
 let undoStack = [], isDrawingStroke = false;
 function saveSnapshot() {
@@ -225,18 +213,15 @@ function undo() {
   if (!undoStack.length) return;
   maskCtx.putImageData(undoStack.pop(), 0, 0);
 }
-
 // ── Capture ───────────────────────────────────────────────────────────
 const HOLD_MS = 1500;
 let holdStart = null, countingDown = false, countTimer = null;
-
 function isLShape(lm) {
   return lm[8].y < lm[6].y &&
          Math.abs(lm[4].x - lm[2].x) > 0.04 &&
          lm[12].y > lm[10].y &&
          lm[16].y > lm[14].y;
 }
-
 function drawCaptureFrame(lm1, lm2, progress) {
   frameCtx.clearRect(0, 0, W, H);
   const x1=(1-lm1[8].x)*W, y1=lm1[8].y*H;
@@ -256,7 +241,6 @@ function drawCaptureFrame(lm1, lm2, progress) {
     frameCtx.stroke();
   });
 }
-
 function startCountdown() {
   countingDown = true;
   let count = 3;
@@ -276,7 +260,6 @@ function startCountdown() {
     }
   }, 1000);
 }
-
 function doCapture() {
   flashEl.style.transition = 'none';
   flashEl.style.opacity = '0.9';
@@ -308,14 +291,11 @@ function doCapture() {
     statusEl.textContent = fogReady ? 'pinch to draw' : 'blow on the screen';
   }, 'image/png');
 }
-
 // ── Hands ─────────────────────────────────────────────────────────────
 const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
 hands.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
-
 hands.onResults(results => {
   const all = results.multiHandLandmarks || [];
-
   // DRAW
   if (all.length >= 1 && !countingDown) {
     const lm = all[0];
@@ -338,7 +318,6 @@ hands.onResults(results => {
     cursor.style.opacity = '0';
     isDrawingStroke = false; resetDraw();
   }
-
   // CAPTURE
   if (!countingDown) {
     const bothL = all.length === 2 && isLShape(all[0]) && isLShape(all[1]);
@@ -355,7 +334,6 @@ hands.onResults(results => {
     }
   }
 });
-
 // ── Camera ────────────────────────────────────────────────────────────
 async function startCamera() {
   try {
@@ -371,7 +349,6 @@ async function startCamera() {
     statusEl.textContent = 'blow on the screen';
   } catch(e) { statusEl.textContent = 'camera access needed'; }
 }
-
 // ── Mic ───────────────────────────────────────────────────────────────
 async function startMic() {
   try {
@@ -383,12 +360,19 @@ async function startMic() {
     const an = ac.createAnalyser(); an.fftSize = 512; hp.connect(an);
     const buf = new Float32Array(an.frequencyBinCount);
     let rTO = null;
+    const startTime = Date.now();
     (function tick() {
       requestAnimationFrame(tick);
       an.getFloatTimeDomainData(buf);
       let s = 0; for (const v of buf) s += v*v;
       const rms = Math.sqrt(s/buf.length);
-      if (rms > 0.014) {
+      
+      // Warm up period (ignore spikes during initial 1.5 seconds)
+      if (Date.now() - startTime < 1500) return;
+      
+      // Higher threshold to prevent background noise from adding fog
+      // Do not add fog while drawing
+      if (rms > 0.035 && !isDrawingStroke) {
         addFog(rms);
         breathRing.classList.add('active');
         clearTimeout(rTO); rTO = setTimeout(() => breathRing.classList.remove('active'), 300);
@@ -396,7 +380,6 @@ async function startMic() {
     })();
   } catch(e) {}
 }
-
 // ── Buttons ───────────────────────────────────────────────────────────
 document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('clearBtn').addEventListener('click', () => {
@@ -404,7 +387,6 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   undoStack = []; fogReady = false; resetDraw();
   statusEl.textContent = 'blow on the screen';
 });
-
 startCamera(); startMic();
 </script>
 </body>
