@@ -8,38 +8,66 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: none; }
   #container { position: relative; width: 100vw; height: 100vh; }
-  video { position: absolute; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0; pointer-events: none; }
-  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+  video {
+    position: absolute; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+    opacity: 0; pointer-events: none;
+  }
+
+  canvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  /* Layer order:
+     1. cameraCanvas  — live mirrored camera feed
+     2. fogCanvas     — the white fog layer (painted by breath)
+     3. drawCanvas    — the dark wet finger strokes on TOP of fog
+     4. dropCanvas    — water drip effect
+     5. frameCanvas   — capture UI overlay
+  */
   #cameraCanvas { z-index: 1; }
-  #maskCanvas   { z-index: 0; display: none; }
-  #blurCanvas   { z-index: 2; }
-  #frameCanvas  { z-index: 3; pointer-events: none; }
+  #fogCanvas    { z-index: 2; opacity: 0.92; }
+  #drawCanvas   { z-index: 3; }
+  #dropCanvas   { z-index: 4; pointer-events: none; }
+  #frameCanvas  { z-index: 5; pointer-events: none; }
 
   #cursor {
-    position: fixed; width: 20px; height: 20px; border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.7); background: rgba(255,255,255,0.08);
-    pointer-events: none; z-index: 100; transform: translate(-50%, -50%);
-    opacity: 0; transition: opacity 0.15s;
+    position: fixed; width: 24px; height: 24px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.05);
+    pointer-events: none; z-index: 100;
+    transform: translate(-50%, -50%);
+    opacity: 0; transition: opacity 0.1s;
   }
-  #cursor.drawing { background: rgba(255,255,255,0.9); border-color: #fff; }
+  #cursor.drawing {
+    background: rgba(60,80,100,0.7);
+    border-color: rgba(150,190,220,0.9);
+    box-shadow: 0 0 8px rgba(100,160,220,0.5);
+  }
 
   #breathRing {
     position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
     width: 44px; height: 44px; border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.12); z-index: 50; pointer-events: none;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    z-index: 50; pointer-events: none;
     transition: border-color 0.1s, box-shadow 0.1s;
   }
-  #breathRing.active { border-color: rgba(210,225,235,0.9); box-shadow: 0 0 20px rgba(210,225,235,0.35); }
+  #breathRing.active {
+    border-color: rgba(210,230,245,0.9);
+    box-shadow: 0 0 22px rgba(210,230,245,0.4);
+  }
 
   #status {
     position: fixed; bottom: 164px; left: 50%; transform: translateX(-50%);
-    color: rgba(255,255,255,0.4); font-size: 11px; letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.5); font-size: 11px; letter-spacing: 0.18em;
     text-transform: uppercase; font-family: Georgia, serif;
     pointer-events: none; white-space: nowrap; z-index: 50;
   }
 
   #countdown {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
     font-size: 140px; font-family: Georgia, serif;
     color: rgba(255,255,255,0.9); text-shadow: 0 0 40px rgba(255,255,255,0.4);
     pointer-events: none; z-index: 60; opacity: 0; transition: opacity 0.2s;
@@ -48,20 +76,20 @@
 
   #btnGroup { position: fixed; top: 20px; right: 20px; z-index: 50; display: flex; gap: 8px; }
   #btnGroup button {
-    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4);
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.35);
     color: rgba(255,255,255,0.9); padding: 8px 16px; font-size: 11px;
     letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
-    border-radius: 4px; font-family: Georgia, serif; transition: all 0.15s;
-    backdrop-filter: blur(6px);
+    border-radius: 4px; font-family: Georgia, serif;
+    transition: background 0.15s; backdrop-filter: blur(6px);
   }
-  #btnGroup button:hover { background: rgba(255,255,255,0.2); }
+  #btnGroup button:hover { background: rgba(255,255,255,0.15); }
   #btnGroup button:active { transform: scale(0.96); }
 
   #photoStrip {
     position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
     display: flex; align-items: center; gap: 8px; padding: 8px 16px;
     z-index: 55; overflow-x: auto;
-    background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+    background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
   }
   #photoStrip::-webkit-scrollbar { display: none; }
   .photo-thumb {
@@ -75,22 +103,26 @@
   .photo-thumb img { height: 100%; display: block; }
   .save-btn {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.55); color: white; font-size: 10px;
+    background: rgba(0,0,0,0.5); color: #fff; font-size: 10px;
     letter-spacing: 0.1em; font-family: Georgia, serif; text-transform: uppercase;
     opacity: 0; transition: opacity 0.15s;
   }
   .photo-thumb:hover .save-btn { opacity: 1; }
-  @keyframes thumbIn { from { opacity:0; transform:scale(0.8) translateY(10px); } to { opacity:1; transform:scale(1); } }
+  @keyframes thumbIn {
+    from { opacity:0; transform:scale(0.8) translateY(10px); }
+    to   { opacity:1; transform:scale(1); }
+  }
 
-  #flash { position: fixed; inset: 0; z-index: 200; background: white; opacity: 0; pointer-events: none; }
+  #flash { position: fixed; inset: 0; z-index: 200; background: #fff; opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>
 <div id="container">
   <video id="video" autoplay playsinline muted></video>
   <canvas id="cameraCanvas"></canvas>
-  <canvas id="maskCanvas"></canvas>
-  <canvas id="blurCanvas"></canvas>
+  <canvas id="fogCanvas"></canvas>
+  <canvas id="drawCanvas"></canvas>
+  <canvas id="dropCanvas"></canvas>
   <canvas id="frameCanvas"></canvas>
 </div>
 <div id="cursor"></div>
@@ -107,182 +139,266 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script>
-const video        = document.getElementById('video');
-const cameraCanvas = document.getElementById('cameraCanvas');
-const maskCanvas   = document.getElementById('maskCanvas');
-const blurCanvas   = document.getElementById('blurCanvas');
-const frameCanvas  = document.getElementById('frameCanvas');
-const camCtx       = cameraCanvas.getContext('2d');
-const maskCtx      = maskCanvas.getContext('2d');
-const blurCtx      = blurCanvas.getContext('2d');
-const frameCtx     = frameCanvas.getContext('2d');
-const cursor       = document.getElementById('cursor');
-const statusEl     = document.getElementById('status');
-const breathRing   = document.getElementById('breathRing');
-const flashEl      = document.getElementById('flash');
-const countdownEl  = document.getElementById('countdown');
-const photoStrip   = document.getElementById('photoStrip');
+// ── Canvas setup ──────────────────────────────────────────────────────
+const video       = document.getElementById('video');
+const camCanvas   = document.getElementById('cameraCanvas');
+const fogCanvas   = document.getElementById('fogCanvas');
+const drawCanvas  = document.getElementById('drawCanvas');
+const dropCanvas  = document.getElementById('dropCanvas');
+const frameCanvas = document.getElementById('frameCanvas');
+const camCtx      = camCanvas.getContext('2d');
+const fogCtx      = fogCanvas.getContext('2d');
+const drawCtx     = drawCanvas.getContext('2d');
+const dropCtx     = dropCanvas.getContext('2d');
+const frameCtx    = frameCanvas.getContext('2d');
+const cursor      = document.getElementById('cursor');
+const statusEl    = document.getElementById('status');
+const breathRing  = document.getElementById('breathRing');
+const flashEl     = document.getElementById('flash');
+const countdownEl = document.getElementById('countdown');
+const photoStrip  = document.getElementById('photoStrip');
 
-const offscreen = document.createElement('canvas');
-const offCtx    = offscreen.getContext('2d');
+let W = 0, H = 0;
 
-let W = 0, H = 0, fogReady = false;
+// ── Fog state ─────────────────────────────────────────────────────────
+// fogAmount: 0 = no fog, 1 = fully fogged
+let fogAmount = 0;
+let fogReady  = false;  // true once user has blown
 
 // ── Resize ────────────────────────────────────────────────────────────
 function resize() {
   W = window.innerWidth; H = window.innerHeight;
-  [cameraCanvas, maskCanvas, blurCanvas, frameCanvas].forEach(c => { c.width = W; c.height = H; });
-  offscreen.width = W; offscreen.height = H;
+  [camCanvas, fogCanvas, drawCanvas, dropCanvas, frameCanvas].forEach(c => {
+    c.width = W; c.height = H;
+  });
+  // Repaint fog at current level after resize
+  paintFog();
 }
 window.addEventListener('resize', resize);
 
-// ── Render ────────────────────────────────────────────────────────────
+// ── Camera render loop ────────────────────────────────────────────────
 function render() {
   requestAnimationFrame(render);
   if (video.readyState < 2) return;
-  camCtx.save(); camCtx.translate(W, 0); camCtx.scale(-1, 1);
-  camCtx.drawImage(video, 0, 0, W, H); camCtx.restore();
-  offCtx.save();
-  offCtx.filter = 'blur(14px) brightness(1.05)';
-  offCtx.translate(W, 0); offCtx.scale(-1, 1);
-  offCtx.drawImage(video, 0, 0, W, H); offCtx.restore();
-  offCtx.fillStyle = 'rgba(205,218,228,0.35)';
-  offCtx.fillRect(0, 0, W, H);
-  blurCtx.clearRect(0, 0, W, H);
-  blurCtx.drawImage(offscreen, 0, 0);
-  blurCtx.globalCompositeOperation = 'destination-in';
-  blurCtx.drawImage(maskCanvas, 0, 0);
-  blurCtx.globalCompositeOperation = 'source-over';
+  camCtx.save();
+  camCtx.translate(W, 0); camCtx.scale(-1, 1);
+  camCtx.drawImage(video, 0, 0, W, H);
+  camCtx.restore();
 }
 
-// ── Fog ───────────────────────────────────────────────────────────────
-let breathCooldown = 0;
-function addFog(volume) {
-  if (breathCooldown > 0) { breathCooldown--; return; }
-  fogReady = true;
-  for (let i = 0; i < 3 + Math.floor(Math.random()*3); i++) {
-    const cx = W*0.5 + (Math.random()-0.5)*W*0.6;
-    const cy = H*0.5 + (Math.random()-0.5)*H*0.3;
-    const r  = 100 + Math.random()*200 + volume*600;
-    const a  = Math.min(1, 0.4 + volume*4);
-    const g  = maskCtx.createRadialGradient(cx,cy,0,cx,cy,r);
-    g.addColorStop(0, `rgba(255,255,255,${a})`);
-    g.addColorStop(0.5, `rgba(255,255,255,${a*0.65})`);
-    g.addColorStop(1, `rgba(255,255,255,0)`);
-    maskCtx.save();
-    maskCtx.globalCompositeOperation = 'source-over';
-    maskCtx.fillStyle = g;
-    maskCtx.beginPath(); maskCtx.arc(cx,cy,r,0,Math.PI*2); maskCtx.fill();
-    maskCtx.restore();
+// ── Fog painting ──────────────────────────────────────────────────────
+// The fog is a separate canvas painted with a white-blue haze.
+// Finger drawing is on ANOTHER canvas on top → dark wet lines.
+function paintFog() {
+  fogCtx.clearRect(0, 0, W, H);
+  if (fogAmount <= 0) return;
+  // Base fog colour — slightly blue-white like cold glass
+  fogCtx.fillStyle = `rgba(220,232,242,${Math.min(fogAmount, 1)})`;
+  fogCtx.fillRect(0, 0, W, H);
+  // Add subtle gaussian grain texture to look like real condensation
+  for (let i = 0; i < 120; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = 2 + Math.random() * 5;
+    const a = (0.03 + Math.random() * 0.07) * Math.min(fogAmount, 1);
+    fogCtx.beginPath();
+    fogCtx.arc(x, y, r, 0, Math.PI * 2);
+    fogCtx.fillStyle = `rgba(180,210,230,${a})`;
+    fogCtx.fill();
   }
-  breathCooldown = 4;
-  if (!countingDown) statusEl.textContent = 'pinch to draw';
 }
 
-// ── Draw ──────────────────────────────────────────────────────────────
-let smoothX = null, smoothY = null;
-const SMOOTH = 0.35;
-let trail = [];
+// ── Add fog from breath ───────────────────────────────────────────────
+let breathCooldown = 0;
+let fogAnimFrame = null;
+const FOG_STEP = 0.018; // how fast fog builds per breath pulse
 
-function eraseAt(rawX, rawY) {
+function addFogPulse(volume) {
+  if (breathCooldown > 0) { breathCooldown--; return; }
+  // Increase fog level
+  fogAmount = Math.min(1, fogAmount + FOG_STEP + volume * 0.08);
+  fogReady = fogAmount > 0.15;
+  paintFog();
+  breathCooldown = 3;
+  if (!countingDown) statusEl.textContent = fogReady ? 'pinch to draw' : 'keep blowing…';
+}
+
+// Fog slowly fades over time (condensation drying)
+let lastFogFade = Date.now();
+function fogFadeTick() {
+  requestAnimationFrame(fogFadeTick);
+  const now = Date.now();
+  if (now - lastFogFade > 4000 && fogAmount > 0) { // fade after 4s idle
+    fogAmount = Math.max(0, fogAmount - 0.0008);
+    paintFog();
+    lastFogFade = now - 3800; // only step every ~200ms
+  }
+}
+
+// ── Drawing on fog (dark wet marks) ──────────────────────────────────
+// drawCanvas sits on top of fogCanvas.
+// We draw DARK BLUE-GREY strokes — like a wet finger on condensation.
+let smoothX = null, smoothY = null;
+const SMOOTH = 0.3;
+let trail = [];
+let undoStack = [];
+let isDrawingStroke = false;
+
+function beginStroke() {
+  // Save entire draw canvas for undo
+  undoStack.push(drawCtx.getImageData(0, 0, W, H));
+  if (undoStack.length > 20) undoStack.shift();
+  isDrawingStroke = true;
+}
+
+function endStroke() {
+  isDrawingStroke = false;
+  smoothX = null; smoothY = null; trail = [];
+  // Spawn a few water drips from the last drawn position
+  if (lastFx !== null) spawnDrip(lastFx, lastFy);
+}
+
+let lastFx = null, lastFy = null;
+
+function drawAt(rawX, rawY) {
   if (smoothX === null) { smoothX = rawX; smoothY = rawY; }
   smoothX += SMOOTH * (rawX - smoothX);
   smoothY += SMOOTH * (rawY - smoothY);
   const x = smoothX, y = smoothY;
+  lastFx = x; lastFy = y;
   trail.push({x, y});
-  if (trail.length > 8) trail.shift();
+  if (trail.length > 10) trail.shift();
   if (trail.length < 2) return;
 
-  maskCtx.save();
-  maskCtx.globalCompositeOperation = 'destination-out';
-  maskCtx.strokeStyle = 'rgba(0,0,0,1)';
-  maskCtx.lineWidth = 22;
-  maskCtx.lineCap = 'round';
-  maskCtx.lineJoin = 'round';
-  maskCtx.beginPath();
+  drawCtx.save();
+  // Dark wet glass mark — semi-transparent dark blue-grey
+  drawCtx.globalCompositeOperation = 'source-over';
+  drawCtx.strokeStyle = 'rgba(30,45,60,0.82)';
+  drawCtx.lineWidth = 28;
+  drawCtx.lineCap = 'round';
+  drawCtx.lineJoin = 'round';
+  drawCtx.shadowColor = 'rgba(20,40,70,0.3)';
+  drawCtx.shadowBlur = 6;
+
+  drawCtx.beginPath();
   if (trail.length === 2) {
-    maskCtx.moveTo(trail[0].x, trail[0].y);
-    maskCtx.lineTo(trail[1].x, trail[1].y);
+    drawCtx.moveTo(trail[0].x, trail[0].y);
+    drawCtx.lineTo(trail[1].x, trail[1].y);
   } else {
-    maskCtx.moveTo((trail[0].x + trail[1].x) / 2, (trail[0].y + trail[1].y) / 2);
+    drawCtx.moveTo(
+      (trail[0].x + trail[1].x) / 2,
+      (trail[0].y + trail[1].y) / 2
+    );
     for (let i = 1; i < trail.length - 1; i++) {
-      maskCtx.quadraticCurveTo(
+      drawCtx.quadraticCurveTo(
         trail[i].x, trail[i].y,
         (trail[i].x + trail[i+1].x) / 2,
         (trail[i].y + trail[i+1].y) / 2
       );
     }
   }
-  maskCtx.stroke();
-  maskCtx.restore();
+  drawCtx.stroke();
+
+  // Thin bright edge highlight — like light catching the wet groove
+  drawCtx.strokeStyle = 'rgba(180,210,235,0.18)';
+  drawCtx.lineWidth = 10;
+  drawCtx.shadowBlur = 0;
+  drawCtx.stroke();
+
+  drawCtx.restore();
+
+  // Also slightly erase fog under the stroke so camera shows through a little
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = 'destination-out';
+  fogCtx.strokeStyle = 'rgba(0,0,0,0.55)';
+  fogCtx.lineWidth = 26;
+  fogCtx.lineCap = 'round';
+  fogCtx.lineJoin = 'round';
+  fogCtx.beginPath();
+  fogCtx.moveTo(trail[trail.length-2].x, trail[trail.length-2].y);
+  fogCtx.lineTo(trail[trail.length-1].x, trail[trail.length-1].y);
+  fogCtx.stroke();
+  fogCtx.restore();
 }
 
-function resetDraw() {
-  smoothX = null; smoothY = null; trail = [];
-}
-
-// ── Undo ──────────────────────────────────────────────────────────────
-let undoStack = [], isDrawingStroke = false;
-function saveSnapshot() {
-  undoStack.push(maskCtx.getImageData(0, 0, W, H));
-  if (undoStack.length > 20) undoStack.shift();
-}
 function undo() {
   if (!undoStack.length) return;
-  maskCtx.putImageData(undoStack.pop(), 0, 0);
+  drawCtx.putImageData(undoStack.pop(), 0, 0);
+  // Also restore fog in that area — repaint full fog
+  paintFog();
 }
 
-// ── Pinch detection using NORMALISED 3-D distance ─────────────────────
-// KEY FIX: We measure pinch in NORMALISED landmark space (0-1), not pixels.
-// This means the pinch threshold is hand-size-independent and depth-independent.
-// Whether your hand is close to camera or far, the normalised tip-to-tip
-// distance stays consistent when you actually pinch vs. open.
-//
-// We also use a WRIST-SCALED distance: divide tip distance by the
-// palm size (wrist→middle-mcp) so pinch ratio is always relative to
-// YOUR hand, not to how far you hold it from the camera.
-
-const PINCH_ON_RATIO  = 0.28; // tip dist / palm size → pinching
-const PINCH_OFF_RATIO = 0.40; // tip dist / palm size → open
-const FRAMES_ON  = 2;
-const FRAMES_OFF = 6;
-
-let pinchState    = false;
-let pinchOnCount  = 0;
-let pinchOffCount = 0;
-
-function palmSize(lm) {
-  // Distance from wrist (0) to middle-finger MCP (9) in normalised space
-  const dx = lm[9].x - lm[0].x;
-  const dy = lm[9].y - lm[0].y;
-  const dz = (lm[9].z || 0) - (lm[0].z || 0);
-  return Math.sqrt(dx*dx + dy*dy + dz*dz) || 0.001;
+// ── Water drips ───────────────────────────────────────────────────────
+const drips = [];
+function spawnDrip(x, y) {
+  drips.push({
+    x, y,
+    speed: 0.6 + Math.random() * 1.2,
+    width: 3 + Math.random() * 5,
+    length: 0,
+    maxLength: 40 + Math.random() * 80,
+    alpha: 0.5 + Math.random() * 0.3
+  });
 }
 
-function pinchDist(lm) {
-  // Index fingertip (8) to thumb tip (4) in 3-D normalised space
-  const dx = lm[8].x - lm[4].x;
-  const dy = lm[8].y - lm[4].y;
-  const dz = (lm[8].z || 0) - (lm[4].z || 0);
+function updateDrips() {
+  requestAnimationFrame(updateDrips);
+  dropCtx.clearRect(0, 0, W, H);
+  for (let i = drips.length - 1; i >= 0; i--) {
+    const d = drips[i];
+    d.y += d.speed;
+    d.length = Math.min(d.length + d.speed, d.maxLength);
+    if (d.y > H + 20) { drips.splice(i, 1); continue; }
+
+    // Draw the drip as a dark tapered line
+    const grad = dropCtx.createLinearGradient(d.x, d.y - d.length, d.x, d.y);
+    grad.addColorStop(0, `rgba(30,50,70,0)`);
+    grad.addColorStop(0.3, `rgba(30,50,70,${d.alpha})`);
+    grad.addColorStop(1, `rgba(30,50,70,${d.alpha * 0.4})`);
+    dropCtx.beginPath();
+    dropCtx.moveTo(d.x, d.y - d.length);
+    dropCtx.lineTo(d.x, d.y);
+    dropCtx.strokeStyle = grad;
+    dropCtx.lineWidth = d.width;
+    dropCtx.lineCap = 'round';
+    dropCtx.stroke();
+
+    // Bulge at tip
+    dropCtx.beginPath();
+    dropCtx.arc(d.x, d.y, d.width * 0.8, 0, Math.PI * 2);
+    dropCtx.fillStyle = `rgba(30,50,70,${d.alpha})`;
+    dropCtx.fill();
+  }
+}
+
+// ── Pinch detection — palm-normalised 3D ratio ────────────────────────
+// Completely depth-independent: ratio = tip_dist / palm_size
+// Both measured in MediaPipe normalised coordinates (includes .z depth)
+const PINCH_ON_RATIO  = 0.26;  // ratio to START drawing
+const PINCH_OFF_RATIO = 0.42;  // ratio to STOP drawing (bigger = needs clear open)
+const FRAMES_ON  = 2;          // frames to confirm pinch
+const FRAMES_OFF = 7;          // frames to confirm release (generous)
+
+let pinchState = false, pinchOnCount = 0, pinchOffCount = 0;
+
+function landmarkDist3D(a, b) {
+  const dx = a.x-b.x, dy = a.y-b.y, dz = (a.z||0)-(b.z||0);
   return Math.sqrt(dx*dx + dy*dy + dz*dz);
 }
 
 function updatePinch(lm) {
-  const ratio = pinchDist(lm) / palmSize(lm);
+  const palm  = landmarkDist3D(lm[0], lm[9]) || 0.001;
+  const tips  = landmarkDist3D(lm[4], lm[8]);
+  const ratio = tips / palm;
+
   if (!pinchState) {
-    if (ratio < PINCH_ON_RATIO) {
-      pinchOnCount++; pinchOffCount = 0;
-      if (pinchOnCount >= FRAMES_ON) { pinchState = true; pinchOnCount = 0; }
-    } else {
-      pinchOnCount = 0;
-    }
+    pinchOnCount  = ratio < PINCH_ON_RATIO  ? pinchOnCount + 1 : 0;
+    pinchOffCount = 0;
+    if (pinchOnCount >= FRAMES_ON) { pinchState = true; pinchOnCount = 0; }
   } else {
-    if (ratio > PINCH_OFF_RATIO) {
-      pinchOffCount++; pinchOnCount = 0;
-      if (pinchOffCount >= FRAMES_OFF) { pinchState = false; pinchOffCount = 0; }
-    } else {
-      pinchOffCount = 0;
-    }
+    pinchOffCount = ratio > PINCH_OFF_RATIO ? pinchOffCount + 1 : 0;
+    pinchOnCount  = 0;
+    if (pinchOffCount >= FRAMES_OFF) { pinchState = false; pinchOffCount = 0; }
   }
   return pinchState;
 }
@@ -305,13 +421,13 @@ function drawCaptureFrame(lm1, lm2, progress) {
   const left=Math.min(x1,x2), right=Math.max(x1,x2);
   const top=Math.min(y1,y2), bottom=top+(right-left)*0.75;
   const cLen=(right-left)*0.18;
-  frameCtx.strokeStyle = `rgba(255,255,255,${0.5+progress*0.5})`;
-  frameCtx.lineWidth = 2+progress*1.5; frameCtx.lineCap = 'square';
+  frameCtx.strokeStyle=`rgba(255,255,255,${0.5+progress*0.5})`;
+  frameCtx.lineWidth=2+progress*1.5; frameCtx.lineCap='square';
   [[left,top+cLen,left,top,left+cLen,top],
    [right-cLen,top,right,top,right,top+cLen],
    [left,bottom-cLen,left,bottom,left+cLen,bottom],
    [right-cLen,bottom,right,bottom,right,bottom-cLen]
-  ].forEach(([x1,y1,x2,y2,x3,y3]) => {
+  ].forEach(([x1,y1,x2,y2,x3,y3])=>{
     frameCtx.beginPath();
     frameCtx.moveTo(x1,y1); frameCtx.lineTo(x2,y2); frameCtx.lineTo(x3,y3);
     frameCtx.stroke();
@@ -319,64 +435,54 @@ function drawCaptureFrame(lm1, lm2, progress) {
 }
 
 function startCountdown() {
-  countingDown = true;
-  let count = 3;
-  countdownEl.textContent = count;
-  countdownEl.classList.add('show');
+  countingDown = true; let count = 3;
+  countdownEl.textContent = count; countdownEl.classList.add('show');
   statusEl.textContent = 'get ready…';
   countTimer = setInterval(() => {
     count--;
-    if (count > 0) {
-      countdownEl.textContent = count;
-    } else {
+    if (count > 0) { countdownEl.textContent = count; }
+    else {
       clearInterval(countTimer);
-      countdownEl.classList.remove('show');
-      countdownEl.textContent = '';
-      countingDown = false;
-      doCapture();
+      countdownEl.classList.remove('show'); countdownEl.textContent = '';
+      countingDown = false; doCapture();
     }
   }, 1000);
 }
 
 function doCapture() {
-  flashEl.style.transition = 'none';
-  flashEl.style.opacity = '0.9';
-  setTimeout(() => { flashEl.style.transition = 'opacity 0.3s'; flashEl.style.opacity = '0'; }, 80);
+  flashEl.style.transition='none'; flashEl.style.opacity='0.9';
+  setTimeout(()=>{ flashEl.style.transition='opacity 0.3s'; flashEl.style.opacity='0'; },80);
   const snap = document.createElement('canvas');
-  snap.width = W; snap.height = H;
-  const sCtx = snap.getContext('2d');
-  sCtx.drawImage(cameraCanvas, 0, 0);
-  sCtx.drawImage(blurCanvas, 0, 0);
-  snap.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const wrap = document.createElement('div');
-    wrap.className = 'photo-thumb';
-    const img = document.createElement('img');
-    img.src = url;
-    const btn = document.createElement('div');
-    btn.className = 'save-btn';
-    btn.textContent = '↓ save';
-    btn.addEventListener('click', e => {
+  snap.width=W; snap.height=H;
+  const sCtx=snap.getContext('2d');
+  sCtx.drawImage(camCanvas,0,0);
+  sCtx.drawImage(fogCanvas,0,0);
+  sCtx.drawImage(drawCanvas,0,0);
+  sCtx.drawImage(dropCanvas,0,0);
+  snap.toBlob(blob=>{
+    const url=URL.createObjectURL(blob);
+    const wrap=document.createElement('div'); wrap.className='photo-thumb';
+    const img=document.createElement('img'); img.src=url;
+    const btn=document.createElement('div'); btn.className='save-btn'; btn.textContent='↓ save';
+    btn.addEventListener('click',e=>{
       e.stopPropagation();
-      const a = document.createElement('a');
-      a.href = url; a.download = `breath-mirror-${Date.now()}.png`; a.click();
+      const a=document.createElement('a'); a.href=url;
+      a.download=`breath-mirror-${Date.now()}.png`; a.click();
     });
-    wrap.appendChild(img); wrap.appendChild(btn);
-    photoStrip.appendChild(wrap);
-    wrap.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-    frameCtx.clearRect(0, 0, W, H);
-    holdStart = null;
-    statusEl.textContent = fogReady ? 'pinch to draw' : 'blow on the screen';
-  }, 'image/png');
+    wrap.appendChild(img); wrap.appendChild(btn); photoStrip.appendChild(wrap);
+    wrap.scrollIntoView({behavior:'smooth',inline:'end'});
+    frameCtx.clearRect(0,0,W,H); holdStart=null;
+    statusEl.textContent=fogReady?'pinch to draw':'blow on the screen';
+  },'image/png');
 }
 
-// ── Hands ─────────────────────────────────────────────────────────────
-const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+// ── MediaPipe Hands ───────────────────────────────────────────────────
+const hands = new Hands({ locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
 hands.setOptions({
   maxNumHands: 2,
   modelComplexity: 1,
   minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.6
+  minTrackingConfidence: 0.65
 });
 
 hands.onResults(results => {
@@ -385,11 +491,9 @@ hands.onResults(results => {
   // ── DRAW ──
   if (all.length >= 1 && !countingDown) {
     const lm = all[0];
-    // Fingertip position in screen coords (mirrored)
+    // Index fingertip in screen coords (mirror flip on X)
     const fx = (1 - lm[8].x) * W;
     const fy = lm[8].y * H;
-
-    // Use palm-normalised 3D pinch ratio — depth-independent
     const pinching = updatePinch(lm);
 
     cursor.style.left = fx + 'px';
@@ -397,23 +501,20 @@ hands.onResults(results => {
     cursor.style.opacity = '1';
 
     if (pinching && fogReady) {
-      holdStart = null;
-      frameCtx.clearRect(0, 0, W, H);
+      holdStart = null; frameCtx.clearRect(0,0,W,H);
       cursor.classList.add('drawing');
-      if (!isDrawingStroke) { saveSnapshot(); isDrawingStroke = true; }
-      eraseAt(fx, fy);
+      if (!isDrawingStroke) beginStroke();
+      drawAt(fx, fy);
       statusEl.textContent = 'drawing…';
-      return;
+      return; // skip capture while drawing
     } else {
       cursor.classList.remove('drawing');
-      if (!pinchState) {
-        if (isDrawingStroke) { isDrawingStroke = false; resetDraw(); }
-      }
+      if (!pinchState && isDrawingStroke) endStroke();
     }
   } else if (!countingDown) {
     cursor.style.opacity = '0';
     pinchOnCount = 0; pinchOffCount = 0; pinchState = false;
-    if (isDrawingStroke) { isDrawingStroke = false; resetDraw(); }
+    if (isDrawingStroke) endStroke();
   }
 
   // ── CAPTURE ──
@@ -422,11 +523,11 @@ hands.onResults(results => {
     if (bothL) {
       if (!holdStart) holdStart = Date.now();
       const elapsed = Date.now() - holdStart;
-      drawCaptureFrame(all[0], all[1], Math.min(elapsed / HOLD_MS, 1));
+      drawCaptureFrame(all[0], all[1], Math.min(elapsed/HOLD_MS, 1));
       statusEl.textContent = '📷 hold…';
-      if (elapsed >= HOLD_MS) { holdStart = null; frameCtx.clearRect(0,0,W,H); startCountdown(); }
+      if (elapsed >= HOLD_MS) { holdStart=null; frameCtx.clearRect(0,0,W,H); startCountdown(); }
     } else {
-      if (holdStart) { holdStart = null; frameCtx.clearRect(0,0,W,H); }
+      if (holdStart) { holdStart=null; frameCtx.clearRect(0,0,W,H); }
       if (!fogReady) statusEl.textContent = 'blow on the screen';
       else if (all.length >= 1) statusEl.textContent = 'pinch to draw';
     }
@@ -445,41 +546,62 @@ async function startCamera() {
       width: 1280, height: 720
     });
     mpCam.start(); resize(); render();
+    fogFadeTick(); updateDrips();
     statusEl.textContent = 'blow on the screen';
   } catch(e) { statusEl.textContent = 'camera access needed'; }
 }
 
-// ── Mic ───────────────────────────────────────────────────────────────
+// ── Microphone — breath detection ─────────────────────────────────────
 async function startMic() {
   try {
-    const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const ac = new AudioContext();
+    const ms  = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ac  = new AudioContext();
     const src = ac.createMediaStreamSource(ms);
-    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
+
+    // Highpass at 200Hz to ignore low rumble/background
+    const hp  = ac.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 200;
     src.connect(hp);
-    const an = ac.createAnalyser(); an.fftSize = 512; hp.connect(an);
+
+    const an = ac.createAnalyser(); an.fftSize = 512;
+    hp.connect(an);
     const buf = new Float32Array(an.frequencyBinCount);
+
+    // Running average to measure ambient noise level
+    let ambientRMS = 0.01;
     let rTO = null;
+
     (function tick() {
       requestAnimationFrame(tick);
       an.getFloatTimeDomainData(buf);
-      let s = 0; for (const v of buf) s += v*v;
-      const rms = Math.sqrt(s/buf.length);
-      if (rms > 0.014) {
-        addFog(rms);
+      let s = 0; for (const v of buf) s += v * v;
+      const rms = Math.sqrt(s / buf.length);
+
+      // Slowly calibrate ambient noise floor
+      ambientRMS = ambientRMS * 0.995 + rms * 0.005;
+
+      // Breath = signal significantly above ambient (2.5× threshold)
+      const threshold = Math.max(0.018, ambientRMS * 2.5);
+      if (rms > threshold) {
+        addFogPulse(rms);
         breathRing.classList.add('active');
-        clearTimeout(rTO); rTO = setTimeout(() => breathRing.classList.remove('active'), 300);
+        clearTimeout(rTO);
+        rTO = setTimeout(() => breathRing.classList.remove('active'), 300);
       }
     })();
-  } catch(e) {}
+  } catch(e) { /* mic not available */ }
 }
 
 // ── Buttons ───────────────────────────────────────────────────────────
 document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('clearBtn').addEventListener('click', () => {
-  maskCtx.clearRect(0, 0, W, H);
-  undoStack = []; fogReady = false; resetDraw();
+  drawCtx.clearRect(0,0,W,H);
+  fogCtx.clearRect(0,0,W,H);
+  undoStack = []; fogAmount = 0; fogReady = false;
+  smoothX = null; smoothY = null; trail = [];
   pinchOnCount = 0; pinchOffCount = 0; pinchState = false;
+  isDrawingStroke = false;
+  drips.length = 0;
   statusEl.textContent = 'blow on the screen';
 });
 
