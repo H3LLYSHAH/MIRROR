@@ -98,8 +98,8 @@
 <div id="breathRing"></div>
 <div id="countdown"></div>
 <div id="btnGroup">
-  <button id="undoBtn">↩ undo</button>
-  <button id="clearBtn">✕ clear</button>
+  <button id="undoBtn">↩ UNDO</button>
+  <button id="clearBtn">✕ CLEAR</button>
 </div>
 <div id="photoStrip"></div>
 <div id="flash"></div>
@@ -181,38 +181,45 @@ function addFog(volume) {
 
 // ── Draw ──────────────────────────────────────────────────────────────
 let smoothX = null, smoothY = null;
-const SMOOTH = 0.4;
-let trail = [], lastDrawX = null, lastDrawY = null;
+const SMOOTH = 0.35;
+let trail = [];
 
 function eraseAt(rawX, rawY) {
   if (smoothX === null) { smoothX = rawX; smoothY = rawY; }
   smoothX += SMOOTH * (rawX - smoothX);
   smoothY += SMOOTH * (rawY - smoothY);
   const x = smoothX, y = smoothY;
-  lastDrawX = x; lastDrawY = y;
-  trail.push({x, y}); if (trail.length > 6) trail.shift();
+  trail.push({x, y});
+  if (trail.length > 8) trail.shift();
   if (trail.length < 2) return;
+
   maskCtx.save();
   maskCtx.globalCompositeOperation = 'destination-out';
   maskCtx.strokeStyle = 'rgba(0,0,0,1)';
-  maskCtx.lineWidth = 40; maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+  // FIX: smaller lineWidth = finer finger-drawing stroke, not a fat eraser
+  maskCtx.lineWidth = 18;
+  maskCtx.lineCap = 'round';
+  maskCtx.lineJoin = 'round';
   maskCtx.beginPath();
   if (trail.length === 2) {
     maskCtx.moveTo(trail[0].x, trail[0].y);
     maskCtx.lineTo(trail[1].x, trail[1].y);
   } else {
-    maskCtx.moveTo((trail[0].x+trail[1].x)/2, (trail[0].y+trail[1].y)/2);
-    for (let i = 1; i < trail.length-1; i++) {
-      maskCtx.quadraticCurveTo(trail[i].x, trail[i].y,
-        (trail[i].x+trail[i+1].x)/2, (trail[i].y+trail[i+1].y)/2);
+    maskCtx.moveTo((trail[0].x + trail[1].x) / 2, (trail[0].y + trail[1].y) / 2);
+    for (let i = 1; i < trail.length - 1; i++) {
+      maskCtx.quadraticCurveTo(
+        trail[i].x, trail[i].y,
+        (trail[i].x + trail[i+1].x) / 2,
+        (trail[i].y + trail[i+1].y) / 2
+      );
     }
   }
-  maskCtx.stroke(); maskCtx.restore();
+  maskCtx.stroke();
+  maskCtx.restore();
 }
 
 function resetDraw() {
-  smoothX = null; smoothY = null;
-  trail = []; lastDrawX = null; lastDrawY = null;
+  smoothX = null; smoothY = null; trail = [];
 }
 
 // ── Undo ──────────────────────────────────────────────────────────────
@@ -226,29 +233,38 @@ function undo() {
   maskCtx.putImageData(undoStack.pop(), 0, 0);
 }
 
-// ── Pinch debounce ────────────────────────────────────────────────────
-// FIX: We don't stop drawing the instant pinch opens.
-// Only reset after PINCH_RELEASE_FRAMES consecutive non-pinch frames.
-const PINCH_RELEASE_FRAMES = 6;  // ~6 frames ≈ 100ms grace period
-let pinchReleaseCounter = 0;
-let isPinching = false;
+// ── Pinch hysteresis ──────────────────────────────────────────────────
+// PINCH_ON  < PINCH_OFF  creates a "dead band" so jitter can't flip state
+// FRAMES_ON / FRAMES_OFF require consecutive frames before changing state
+const PINCH_ON   = 0.060;  // must be THIS close to enter pinch
+const PINCH_OFF  = 0.085;  // must be THIS far apart to exit pinch
+const FRAMES_ON  = 3;      // need 3 consecutive close frames to start
+const FRAMES_OFF = 6;      // need 6 consecutive open frames to stop
 
-function updatePinchState(currentlyPinching) {
-  if (currentlyPinching) {
-    isPinching = true;
-    pinchReleaseCounter = 0;  // reset counter whenever pinch is active
+let pinchState    = false;
+let pinchOnCount  = 0;
+let pinchOffCount = 0;
+
+function updatePinch(pixelDist) {
+  const norm = pixelDist / W;
+  if (!pinchState) {
+    if (norm < PINCH_ON) {
+      pinchOnCount++;
+      pinchOffCount = 0;
+      if (pinchOnCount >= FRAMES_ON) { pinchState = true; pinchOnCount = 0; }
+    } else {
+      pinchOnCount = 0;
+    }
   } else {
-    if (isPinching) {
-      pinchReleaseCounter++;
-      if (pinchReleaseCounter >= PINCH_RELEASE_FRAMES) {
-        // Only truly release after enough consecutive non-pinch frames
-        isPinching = false;
-        pinchReleaseCounter = 0;
-      }
-      // While counting down, still treat as pinching (don't reset draw yet)
+    if (norm > PINCH_OFF) {
+      pinchOffCount++;
+      pinchOnCount = 0;
+      if (pinchOffCount >= FRAMES_OFF) { pinchState = false; pinchOffCount = 0; }
+    } else {
+      pinchOffCount = 0;
     }
   }
-  return isPinching;
+  return pinchState;
 }
 
 // ── Capture ───────────────────────────────────────────────────────────
@@ -336,58 +352,53 @@ function doCapture() {
 
 // ── Hands ─────────────────────────────────────────────────────────────
 const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+hands.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.7, minTrackingConfidence:0.6 });
 
 hands.onResults(results => {
   const all = results.multiHandLandmarks || [];
 
-  // DRAW
+  // ── DRAW ──
   if (all.length >= 1 && !countingDown) {
     const lm = all[0];
-    const fx = (1-lm[8].x)*W, fy = lm[8].y*H;
-    const tx = (1-lm[4].x)*W, ty = lm[4].y*H;
-    const dist = Math.hypot(fx-tx, fy-ty);
+    const fx = (1 - lm[8].x) * W;
+    const fy = lm[8].y * H;
+    const tx = (1 - lm[4].x) * W;
+    const ty = lm[4].y * H;
+    const pinching = updatePinch(Math.hypot(fx - tx, fy - ty));
 
-    // FIX: Slightly larger threshold so pinch is easier to hold,
-    // and use debounced pinch state so brief separation doesn't break the stroke.
-    const rawPinching = dist < W * 0.07;
-    const pinching = updatePinchState(rawPinching);
-
-    cursor.style.left = fx+'px'; cursor.style.top = fy+'px'; cursor.style.opacity = '1';
+    cursor.style.left = fx + 'px';
+    cursor.style.top  = fy + 'px';
+    cursor.style.opacity = '1';
 
     if (pinching && fogReady) {
-      holdStart = null; frameCtx.clearRect(0,0,W,H);
+      holdStart = null;
+      frameCtx.clearRect(0, 0, W, H);
       cursor.classList.add('drawing');
       if (!isDrawingStroke) { saveSnapshot(); isDrawingStroke = true; }
       eraseAt(fx, fy);
       statusEl.textContent = 'drawing…';
-      return;
-    } else if (!isPinching) {
-      // Only truly reset when debounce confirms pinch is released
+      return;  // skip capture logic while drawing
+    } else {
       cursor.classList.remove('drawing');
-      if (isDrawingStroke) {
-        isDrawingStroke = false;
-        resetDraw();
+      // Only truly reset when pinch state has fully released (after FRAMES_OFF)
+      if (!pinchState) {
+        if (isDrawingStroke) { isDrawingStroke = false; resetDraw(); }
       }
     }
   } else if (!countingDown) {
     cursor.style.opacity = '0';
-    if (isDrawingStroke) {
-      isDrawingStroke = false;
-      resetDraw();
-    }
-    // Reset pinch state when no hand detected
-    isPinching = false;
-    pinchReleaseCounter = 0;
+    // No hand visible — full reset
+    pinchOnCount = 0; pinchOffCount = 0; pinchState = false;
+    if (isDrawingStroke) { isDrawingStroke = false; resetDraw(); }
   }
 
-  // CAPTURE
+  // ── CAPTURE ──
   if (!countingDown) {
     const bothL = all.length === 2 && isLShape(all[0]) && isLShape(all[1]);
     if (bothL) {
       if (!holdStart) holdStart = Date.now();
       const elapsed = Date.now() - holdStart;
-      drawCaptureFrame(all[0], all[1], Math.min(elapsed/HOLD_MS, 1));
+      drawCaptureFrame(all[0], all[1], Math.min(elapsed / HOLD_MS, 1));
       statusEl.textContent = '📷 hold…';
       if (elapsed >= HOLD_MS) { holdStart = null; frameCtx.clearRect(0,0,W,H); startCountdown(); }
     } else {
@@ -442,9 +453,9 @@ async function startMic() {
 // ── Buttons ───────────────────────────────────────────────────────────
 document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('clearBtn').addEventListener('click', () => {
-  maskCtx.clearRect(0,0,W,H);
+  maskCtx.clearRect(0, 0, W, H);
   undoStack = []; fogReady = false; resetDraw();
-  isPinching = false; pinchReleaseCounter = 0;
+  pinchOnCount = 0; pinchOffCount = 0; pinchState = false;
   statusEl.textContent = 'blow on the screen';
 });
 
