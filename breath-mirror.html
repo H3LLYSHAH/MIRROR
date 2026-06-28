@@ -294,6 +294,7 @@ function doCapture() {
 // ── Hands ─────────────────────────────────────────────────────────────
 const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
 hands.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+let drawingHandIndex = null; // Track which hand is currently drawing
 hands.onResults(results => {
   const all = results.multiHandLandmarks || [];
   // DRAW
@@ -310,57 +311,90 @@ hands.onResults(results => {
       eraseAt(fx, fy);
       statusEl.textContent = 'drawing…';
       return;
+    let selectedHand = null;
+    let handIndex = -1;
+    
+    if (isDrawingStroke && drawingHandIndex !== null && drawingHandIndex < all.length) {
+      // Keep tracking the same hand index while drawing to prevent jumping/glitching
+      selectedHand = all[drawingHandIndex];
+      handIndex = drawingHandIndex;
     } else {
       cursor.classList.remove('drawing');
       isDrawingStroke = false; resetDraw();
+      // Find the hand that is pinching or default to the first hand
+      for (let i = 0; i < all.length; i++) {
+        const lm = all[i];
+        const fx = (1-lm[8].x)*W, fy = lm[8].y*H;
+        const tx = (1-lm[4].x)*W, ty = lm[4].y*H;
+        const pinching = Math.hypot(fx-tx, fy-ty) < W*0.055;
+        if (pinching) {
+          selectedHand = lm;
+          handIndex = i;
+          break;
+        }
+      }
+      if (!selectedHand) {
+        selectedHand = all[0];
+        handIndex = 0;
+      }
+    }
+    
+    if (selectedHand) {
+      const fx = (1-selectedHand[8].x)*W, fy = selectedHand[8].y*H;
+      const tx = (1-selectedHand[4].x)*W, ty = selectedHand[4].y*H;
+      const pinching = Math.hypot(fx-tx, fy-ty) < W*0.055;
+      cursor.style.left = fx+'px'; cursor.style.top = fy+'px'; cursor.style.opacity = '1';
+      if (pinching && fogReady) {
+        holdStart = null; frameCtx.clearRect(0,0,W,H);
+        cursor.classList.add('drawing');
+        if (!isDrawingStroke) { 
+          saveSnapshot(); 
+          isDrawingStroke = true; 
+          drawingHandIndex = handIndex;
+        }
+        eraseAt(fx, fy);
+        statusEl.textContent = 'drawing…';
+        return;
+      } else {
+        cursor.classList.remove('drawing');
+        isDrawingStroke = false; 
+        drawingHandIndex = null;
+        resetDraw();
+      }
     }
   } else if (!countingDown) {
     cursor.style.opacity = '0';
     isDrawingStroke = false; resetDraw();
+    isDrawingStroke = false; 
+    drawingHandIndex = null;
+    resetDraw();
   }
   // CAPTURE
-  if (!countingDown) {
-    const bothL = all.length === 2 && isLShape(all[0]) && isLShape(all[1]);
-    if (bothL) {
-      if (!holdStart) holdStart = Date.now();
-      const elapsed = Date.now() - holdStart;
-      drawCaptureFrame(all[0], all[1], Math.min(elapsed/HOLD_MS, 1));
-      statusEl.textContent = '📷 hold…';
-      if (elapsed >= HOLD_MS) { holdStart = null; frameCtx.clearRect(0,0,W,H); startCountdown(); }
-    } else {
-      if (holdStart) { holdStart = null; frameCtx.clearRect(0,0,W,H); }
-      if (!fogReady) statusEl.textContent = 'blow on the screen';
-      else if (all.length >= 1) statusEl.textContent = 'pinch to draw';
-    }
-  }
-});
-// ── Camera ────────────────────────────────────────────────────────────
-async function startCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' }, audio: false
-    });
-    video.srcObject = stream; await video.play();
-    const mpCam = new Camera(video, {
-      onFrame: async () => { await hands.send({ image: video }); },
-      width: 1280, height: 720
-    });
-    mpCam.start(); resize(); render();
-    statusEl.textContent = 'blow on the screen';
-  } catch(e) { statusEl.textContent = 'camera access needed'; }
-}
-// ── Mic ───────────────────────────────────────────────────────────────
-async function startMic() {
-  try {
     const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
     const ac = new AudioContext();
     const src = ac.createMediaStreamSource(ms);
     const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
     src.connect(hp);
     const an = ac.createAnalyser(); an.fftSize = 512; hp.connect(an);
+    
+    // Low-pass filter allows wind/blow noise to trigger more reliably while blocking high frequency hums/beeps
+    const lp = ac.createBiquadFilter(); 
+    lp.type = 'lowpass'; 
+    lp.frequency.value = 300;
+    src.connect(lp);
+    
+    const an = ac.createAnalyser(); 
+    an.fftSize = 512; 
+    lp.connect(an);
+    
     const buf = new Float32Array(an.frequencyBinCount);
     let rTO = null;
+    
+    // Dynamic calibration: measure initial noise levels during the first 2 seconds
     const startTime = Date.now();
+    let ambientMax = 0.01;
+    let threshold = 0.045; // Safe default
+    
     (function tick() {
       requestAnimationFrame(tick);
       an.getFloatTimeDomainData(buf);
@@ -369,10 +403,20 @@ async function startMic() {
       
       // Warm up period (ignore spikes during initial 1.5 seconds)
       if (Date.now() - startTime < 1500) return;
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 2000) {
+        // Calibrating phase: find the peak ambient noise level
+        if (rms > ambientMax) ambientMax = rms;
+        // Set dynamic threshold based on room ambient volume
+        threshold = Math.max(0.045, ambientMax * 2.8);
+        return;
+      }
       
       // Higher threshold to prevent background noise from adding fog
       // Do not add fog while drawing
       if (rms > 0.035 && !isDrawingStroke) {
+      // Use calibrated threshold, and prevent adding new fog if the user is actively drawing
+      if (rms > threshold && !isDrawingStroke) {
         addFog(rms);
         breathRing.classList.add('active');
         clearTimeout(rTO); rTO = setTimeout(() => breathRing.classList.remove('active'), 300);
